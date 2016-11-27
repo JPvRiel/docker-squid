@@ -27,14 +27,14 @@ sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -name squid 
 
 TODO:
 - show how to set client docker containers to use proxy
-- show transparent option
+- improve to leverage transparent proxy option
 
 ## Simple
 
 Without authentication and mapping a volume
 
 ```bash
-$ auso docker run --name squid jpvriel/squid
+$ sudo docker run --name squid jpvriel/squid
 ```
 
 What is does (by default):
@@ -71,11 +71,11 @@ Also:
 First a quick detour about proxy environment variables (and the limits thereof!):
 - Typically `http_proxy` is used, but other odd choices with different case, like `HTTP_PROXY`, and different protocols, like `https_proxy` and `ftp_proxy` exist.
   - Only `http_proxy` or `HTTP_PROXY` are parsed if given as environment variables to the docker container
-  - In case more detail is wanted, `entrypoint.sh` in the docker container uses functions from `proxy_env_to_squid_func.sh` to parse `http_proxy` and `no_proxy` into squid config
-  - `proxy_env_to_squid_func.sh` is smart enough to handle `http://user:pass@...` credentials inserted in the proxy URL (but this is generally bad form for security reasons)
+  - In case more detail is wanted, `entrypoint.sh` in the docker container uses functions to parse `http_proxy` and `no_proxy` into squid config
+  - The functions are smart enough to handle `http://user:pass@...` credentials inserted in the proxy URL (but this is generally bad form for security reasons)
     - password could be exposed in command history
     - password exposed in proxy logs
-- Tools which read `no_proxy` are usually limited to globbing FQDNS and often don't play nice with IP address exclusions.
+- Tools which read `no_proxy` are usually limited to globing FQDNS and often don't play nice with IP address exclusions.
   - `curl` is a very good example. `no_proxy='10.*' curl 10.0.0.1` will still try proxy your request.
   - nonetheless, try avoid polluting the cache with local/fast content by using `no_proxy` if possible
 - As can be appreciated, this is nowhere near as flexible as the JavaScript function for a proxy `.pac` file
@@ -175,6 +175,10 @@ $ curl whatismyip.akamai.com; echo
 Note
 - `407` = proxy authentication required implies your user name or password is wrong (likely), or squid is unable to handle the authentication the upstream proxy needs
 - Don't generate too many `407`s, it can cause account lockout
+
+# Startup script
+
+`docker_proxy.sh` provides a basic SysV-like startup script wrapper to run the container on a host as a convince (for lazy folk like me who don't like remembering all the docker command switches).
 
 # Build
 
@@ -279,7 +283,9 @@ squid
 
 # References
 
-Hereby, a list of other proxy containers that provided ideas (or example code)
+There are many other squid proxy containers to choose from. I made my own simply because I disliked some of the steps used to build them, e.g. decreasing security or pinning against older versions. My aim was to simply base of the latest Ubuntu LTS release and version of squid available in the Ubuntu repo.
+
+Hereby, a list of other proxy containers that provided inspiration (or example code to work from)
 - [Transparent Squid in a container](https://github.com/jpetazzo/squid-in-a-can)
   - Includes transparent idea
   - Has some odd and insecure things happening during build, e.g. `curl` with `--insecure`
