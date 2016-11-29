@@ -25,9 +25,10 @@ When at home, without an upstream proxy, run
 sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -name squid jpvriel/squid
 ```
 
-TODO:
-- show how to set client docker containers to use proxy
-- improve to leverage transparent proxy option
+TODO (implied limitations):
+- show how to set other docker containers to use proxy (and support wider docker networking/compose options)
+- improve to leverage transparent proxy option (related to the above)?
+- detect parent/peer proxy authentication requirements and use Kerberos/NEGOTIATE authentication when required
 
 ## Simple
 
@@ -111,12 +112,21 @@ When the upstream proxy needs authentication, include an extra environment varia
 $ sudo -E docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy -e no_proxy -e http_proxy_get_cred=0 -name squid jpvriel/squid
 ```
 
-Note:
+Notes, including security considerations:
 - In the bash shell (and other's), `0` implies true (which unlike some other languages, i.e. C, where 0 is false and anything else is true)
-- Ultimately, this ends up as `login=domain\user:pass` in squid config's `cache_peer` directive. Future work could try make this more secure
-  - Patching squid to be more secure about handling these credentials
-  - Or work around it using an insane change of local squid -> cntlm proxy -> upstream ntlm proxy, whereby cntlm is run as a command and prompts for the password
-  - Leverage OSX / Gnome / etc keyrings,
+- HTTP basic auth is not a secure choice, especially if the `cache_peer` proxy is not accessed over TLS.
+- For basic HTTP proxy auth, ultimately, this ends up as `login=domain\user:pass` in squid config's `cache_peer` directive. Future work could try make this more secure:
+  - Patching squid to be more secure about handling these credentials.
+  - Configuring the container to use RAM to back the `/etc/squid` directory instead of letting that end up somewhere in docker's storage system where it might persist (e.g. union FS, LVM, brtfs etc).
+  - Configuring the container to mount `/etc/squid` directory as an encrypted volume with a once off (per docker run) random key.
+  - From a threat model perspective, given the intended use as a local proxy for a developer, the above mitigations are not very effective anyhow:
+    - They are probably moot if the dev's laptop (docker engine host) is sufficiently compromised anyhow. It's likely if a dev's OS account is compromised, a common target would be a web browser or alternate piece of software is caching the credentials anyhow.
+    - They could help mitigate the case where, due to a lack of appropriate file-system permissions, storage encryption or storage block re-allocation and re-use (without secure erase) between containers, etc, the docker storage was made accessible to another unprivileged process or user account.
+- Currently, NTLM and Kerberos/Negotiate authentication are not supported yet.
+  - Squid upstream dev's don't seem intent on supporting NTLM (given it's deprecated)
+  - Kerberos/Negotiate is possible, but requires the container sets up a keytab file to support the `login=NEGOTIATE` option which. The squid [cache_peer docs](http://www.squid-cache.org/Doc/config/cache_peer/) warn: "The connection may transmit requests from multiple clients. Negotiate often assumes end-to-end authentication and a single-client. Which is not strictly true here."
+    - Just as above, if the content of the keytab file is exposed, the key can be stolen and used to access services as the user.
+  - A work around for NTLM could be a semi-insane chain of `local squid -> cntlm proxy -> upstream ntlm proxy`, whereby CNTLM is run as a command in the container and prompts for the password. However, CNTLM looks like it's not actively maintained.
 
 #### user:password@... URL encoded proxy credentials
 

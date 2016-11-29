@@ -8,7 +8,7 @@ test_http_head(){
   for u in "${@}"; do
     echo -n "${u} = "
     if ! curl -ILso /dev/null -m "$HTTP_TIMEOUT" -w '%{response_code}\n' "$u"; then
-      echo "WARN: ${u} is not reachable"
+      echo "WARN: ${u} is not reachable."
       let $((not_reachable++))
     fi
   done
@@ -59,17 +59,20 @@ parse_http_proxy() {
     if [[ -n "$host" ]] && [[ -n "$port" ]]; then
       squid_peer_directive="cache_peer $host parent $port 0 no-query no-digest"
     else
-      echo "WARN: Unable to find at least a host in the proxy env var. Ignoring" >&2
+      echo "WARN: Unable to find at least a host in the proxy env var. Ignoring." >&2
       return
     fi
     # handle authentication and deal with special quoting and escaping required for squid config
     if [[ -n "$user" ]] && [[ -n "$pass" ]]; then
       if [[ "$HTTP_PROXY_AUTH_TYPE" == 'NONE' ]] || [[ "$HTTP_PROXY_AUTH_TYPE" == 'BASIC' ]]; then
+        if [[ -z "$tls" ]]; then
+          echo "WARN: Using BASIC authentication for parent proxy without TLS is insecure!"
+        fi
         login=$(escape_login "${user}" "${pass}")
         squid_peer_directive="$squid_peer_directive login=$login"
       elif [[ "$HTTP_PROXY_AUTH_TYPE" == 'NEGOTIATE' ]]; then
         #TODO
-        echo "WARN: Not implimented"
+        echo "WARN: NEGOTIATE not implimented for parent proxy."
       fi
     else
       squid_peer_directive="$squid_peer_directive login=PASSTHRU"
@@ -130,7 +133,7 @@ if [[ -n "$http_proxy" ]] || [[ -n "$HTTP_PROXY" ]]; then
   # check and caution if user:pass@ legacy basic auth was embeded in HTTP URL
   user_pass_re='^http(s)?://[^:]{1,128}:[^@]{1,256}@[^/]+/?'
   if [[ "$http_proxy" =~ $user_pass_re ]]; then
-    echo 'WARN: "user:pass@..." method of including proxy credentials is risky.'
+    echo 'WARN: "user:pass@..." method of including proxy credentials is risky!'
   elif [[ -n "$http_proxy_get_cred" ]]; then
     echo -n 'proxy username: '
     read -r user
