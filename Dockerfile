@@ -5,7 +5,7 @@ ENV SQUID_CACHE_DIR=/var/spool/squid \
     SQUID_LOG_DIR=/var/log/squid \
     SQUID_LOG_TAIL=0 \
     SQUID_USER=proxy \
-    VALIDATE_URLS='http://www.google.com http://whatismyip.akamai.com' \
+    VALIDATE_URLS='http://www.google.com' \
     HTTP_TIMEOUT=15
 ENV HTTP_PROXY_AUTH_TYPE='NONE'
   # if a username is provided, and the default of 'NONE' is left as is, 'BASIC' proxy authentication will be assumed

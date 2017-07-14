@@ -210,10 +210,12 @@ if ! $(which squid) -k parse -f /etc/squid/squid.conf &> /dev/null; then
   exit 1
 fi
 
+
 # output logs to stdout if enabled
 if [[ ${SQUID_LOG_TAIL} -eq 0 ]]; then
   ( umask 0 && truncate -s0 "$SQUID_LOG_DIR"/{access,cache}.log )
   su - "$SQUID_USER" -s /bin/sh -c "tail --pid $$ -n 0 -F \"$SQUID_LOG_DIR/access.log\" &"
+  log_tail_pid=
 fi
 
 # allow arguments to be passed to squid
@@ -230,11 +232,20 @@ fi
 # default behaviour is to launch squid
 if [[ -z ${1} ]]; then
   if [[ ! -d ${SQUID_CACHE_DIR}/00 ]]; then
-    echo "Initializing cache..."
+    echo "Initializing squid cache..."
     $(which squid) -N -f /etc/squid/squid.conf -z
   fi
   echo "Starting squid..."
-  exec "$(which squid)" -f /etc/squid/squid.conf -NYC ${EXTRA_ARGS}
+  "$(which squid)" -f /etc/squid/squid.conf -NYC ${EXTRA_ARGS} &
 else
-  exec "$@"
+  $@ &
 fi
+
+# note, squid command is to run in the forgroung, so hopefully no orphined defunct / 'zombie' processes should result. We don't wrap SIGHUP given squid should not be reloaded.
+
+# trap SIGINT or TERM signals and TERM children
+trap "echo 'Terminating child processes'; [[ -z "$(jobs -p)" ]] || kill $(jobs -p)" 2 3 15
+
+# wait on all children to exit gracefully
+wait
+echo "Exited gracefully"
