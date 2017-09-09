@@ -6,7 +6,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-check_args() { 
+check_args() {
   if [[ -n "$http_proxy" ]] && [[ -z "$no_proxy" ]]; then
     no_proxy='localhost,127.0.0.1,.test'
   fi
@@ -14,16 +14,21 @@ check_args() {
 
 case "$1" in
   start)
-    if docker ps -f status=running,name=squid | grep squid; then
+    echo "INFO: Checking for squid_cache volume"
+    if ! docker volume inspect -f "{{ .Mountpoint }}" squid_cache; then
+      echo "INFO: Creating squid_cache volume"
+      docker volume create squid_cache
+    fi
+    if docker ps -f status=running -f name=squid | grep squid; then
       echo "ERROR: 'squid'' docker container already running?" >&2
       exit 1
     else
       check_args
-      docker run --rm -it -p 172.17.0.1:3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy -e no_proxy --name squid jpvriel/squid
+      docker run --rm -it -p 127.0.0.1:3128:3128 -p 172.17.0.1:3128:3128 -v squid_cache:/var/spool/squid -e http_proxy -e no_proxy --name squid jpvriel/squid
     fi
     ;;
   stop)
-    if docker ps -f status=running,name=squid | grep squid; then
+    if docker ps -f status=running -f name=squid | grep squid; then
        docker stop squid
     else
       echo "ERROR: no running 'squid' docker container found. Nothing to stop." >&2
@@ -31,7 +36,7 @@ case "$1" in
     fi
     ;;
   status)
-    if docker ps -f status=running,name=squid | grep squid; then
+    if docker ps -f status=running -f name=squid | grep squid; then
       echo "INFO: a 'squid' docker container is running."
       docker top squid
     else
@@ -47,8 +52,3 @@ case "$1" in
     exit 1
     ;;
 esac
-
-
-
-
-

@@ -1,14 +1,41 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
+[ "$DEBUG" == 'true' ] && set -x
+
+# Term colour escape codes
+T_DEFAULT='\e[0m'
+T_RED_BOLD='\e[1;31m'
+T_YELLOW_BOLD='\e[1;33m'
+T_BLUE='\e[0;34m'
 
 # funcitons
+
+function report_info() {
+  echo -e "${T_BLUE}INFO:${T_DEFAULT} $*"
+}
+
+function report_warning() {
+  echo -e "${T_YELLOW_BOLD}WARN:${T_DEFAULT} $*" >&2
+}
+
+function report_error(){
+  echo -e "${T_RED_BOLD}ERROR:${T_DEFAULT} $*" >&2
+}
+
+function sigterm_handler() {
+  report_info 'Terminating child processes'
+  [[ -z "$(jobs -p)" ]] || kill $(jobs -p)
+  wait
+  report_info 'Exited gracefully'
+}
+# Note, we don't wrap SIGHUP given squid should not be reloaded, but rather the container re-run.
 
 test_http_head(){
   not_reachable=0
   for u in "${@}"; do
     echo -n "${u} = "
     if ! curl -ILso /dev/null -m "$HTTP_TIMEOUT" -w '%{response_code}\n' "$u"; then
-      echo "WARN: ${u} is not reachable."
+      report_error "${u} is not reachable."
       let $((not_reachable++))
     fi
   done
@@ -47,8 +74,8 @@ parse_http_proxy() {
     tls=${BASH_REMATCH[1]}
     if [[ -n ${BASH_REMATCH[3]} ]] && [[ -n ${BASH_REMATCH[4]} ]]; then
       # url decode username and password in case of url echnoded special characters
-      user=$(url_decode ${BASH_REMATCH[3]})
-      pass=$(url_decode ${BASH_REMATCH[4]})
+      user=$(url_decode "${BASH_REMATCH[3]}")
+      pass=$(url_decode "${BASH_REMATCH[4]}")
     fi
     host=${BASH_REMATCH[5]}
     port=${BASH_REMATCH[7]}
@@ -59,20 +86,20 @@ parse_http_proxy() {
     if [[ -n "$host" ]] && [[ -n "$port" ]]; then
       squid_peer_directive="cache_peer $host parent $port 0 no-query no-digest"
     else
-      echo "WARN: Unable to find at least a host in the proxy env var. Ignoring." >&2
+      report_warning 'Unable to find at least a host in the proxy env var. Ignoring.'
       return
     fi
     # handle authentication and deal with special quoting and escaping required for squid config
     if [[ -n "$user" ]] && [[ -n "$pass" ]]; then
-      if [[ "$HTTP_PROXY_AUTH_TYPE" == 'NONE' ]] || [[ "$HTTP_PROXY_AUTH_TYPE" == 'BASIC' ]]; then
+      if [[ "$http_proxy_auth_type" == 'NONE' ]] || [[ "$http_proxy_auth_type" == 'BASIC' ]]; then
         if [[ -z "$tls" ]]; then
-          echo "WARN: Using BASIC authentication for parent proxy without TLS is insecure!"
+          report_warning 'Using BASIC authentication for parent proxy without TLS is insecure!'
         fi
         login=$(escape_login "${user}" "${pass}")
         squid_peer_directive="$squid_peer_directive login=$login"
-      elif [[ "$HTTP_PROXY_AUTH_TYPE" == 'NEGOTIATE' ]]; then
+      elif [[ "$http_proxy_auth_type" == 'NEGOTIATE' ]]; then
         #TODO
-        echo "WARN: NEGOTIATE not implimented for parent proxy."
+        report_warning 'NEGOTIATE not implimented for parent proxy.'
       fi
     else
       squid_peer_directive="$squid_peer_directive login=PASSTHRU"
@@ -124,22 +151,22 @@ if [[ -z "$http_proxy_auth_type" ]]; then
 fi
 if [[ -n "$http_proxy" ]] || [[ -n "$HTTP_PROXY" ]]; then
   if [[ -n "$http_proxy" ]]; then
-    echo "Upstream parent proxy (peer) found. Using http_proxy"
+    report_info 'Upstream parent proxy (peer) found. Using http_proxy'
   elif [[ -n "$HTTP_PROXY" ]]; then
-    echo "Upstream parent proxy (peer) found. Using HTTP_PROXY"
+    report_info 'Upstream parent proxy (peer) found. Using HTTP_PROXY'
     http_proxy="$HTTP_PROXY"
   fi
   squid_peer_proxy=$(parse_http_proxy "$http_proxy")
   # check and caution if user:pass@ legacy basic auth was embeded in HTTP URL
   user_pass_re='^http(s)?://[^:]{1,128}:[^@]{1,256}@[^/]+/?'
   if [[ "$http_proxy" =~ $user_pass_re ]]; then
-    echo 'WARN: "user:pass@..." method of including proxy credentials is risky!'
-  elif [[ -n "$http_proxy_get_cred" ]]; then
+    report_warning '"user:pass@..." method of including proxy credentials is risky!'
+  elif [[ -n "$http_proxy_get_cred" ]] && [[ "$http_proxy_get_cred" == 'true' ]] ; then
     echo -n 'proxy username: '
     read -r user
     valid_user_re='^[0-9A-Za-z_.@$/\\][-0-9A-Za-z_.@$/\\]*$'
     if ! [[ "$user" =~ $valid_user_re ]]; then
-      echo "ERROR: Invalid characters in username. Aborting." >&2
+      report_error 'Invalid characters in username. Aborting.'
       exit 1
     fi
     echo -n 'proxy password: '
@@ -147,7 +174,7 @@ if [[ -n "$http_proxy" ]] || [[ -n "$HTTP_PROXY" ]]; then
     squid_peer_proxy="$squid_peer_proxy login=$(escape_login "${user}" "${pass}")"
     #TODO FIX to support more than just basic
   else
-    echo 'No proxy authN specified. Will test contacting site(s) without proxy authentication'
+    report_info 'No proxy authN specified. Will test contacting site(s) without proxy authentication'
   fi
   if [[ -n "$squid_peer_proxy" ]]; then
     # Replace proxy seetings in peers.conf
@@ -155,11 +182,11 @@ if [[ -n "$http_proxy" ]] || [[ -n "$HTTP_PROXY" ]]; then
     # Uncomment include
     sed -i -e 's/#include \/etc\/squid\/peers.conf/include \/etc\/squid\/peers.conf/' /etc/squid/squid.conf
   else
-    echo 'ERROR: Proxy env settings found, but unable to parse them. Aborting.' >&2
+    report_error 'Proxy env settings found, but unable to parse them. Aborting.'
     exit 1
   fi
 else
-  echo 'No upstream parent proxy (peer) found. Will test contacting site(s) directly.'
+  report_info 'No upstream parent proxy (peer) found. Will test contacting site(s) directly.'
   # ensure peers.conf is not included
   if grep -q -E '^include /etc/squid/peers\.conf' /etc/squid/squid.conf; then
     sed -i -e 's/^include \/etc\/squid\/peers.conf/#include \/etc\/squid\/peers.conf/' /etc/squid/squid.conf
@@ -167,17 +194,17 @@ else
 fi
 
 # Test
-if ! test_http_head $VALIDATE_URLS; then
-  echo "ERROR: No response from $? test site(s)" >&2
+if ! test_http_head "$VALIDATE_URLS"; then
+  report_error 'No response from test site(s)'
   exit 1
 fi
 
 # Check for exclusions / direct and modify config
 if [[ -n "$no_proxy" ]] || [[ -n "$NO_PROXY" ]]; then
   if [[ -n "$no_proxy" ]]; then
-    echo "Proxy exclusions (direct) found. Using no_proxy"
+    report_info 'Proxy exclusions (direct) found. Using no_proxy'
   elif [[ -n "$NO_PROXY" ]]; then
-    echo "Proxy exclusions (direct) found. Using NO_PROXY"
+    report_info 'Proxy exclusions (direct) found. Using NO_PROXY'
     no_proxy="$NO_PROXY"
   fi
   no_proxy_to_regex_list "$no_proxy" > /etc/squid/direct_regex.txt
@@ -206,7 +233,7 @@ fi
 
 # do a config sanity check
 if ! $(which squid) -k parse -f /etc/squid/squid.conf &> /dev/null; then
-  echo "ERROR: Squid configuration corrupt. Aborting." >&2
+  report_error 'Squid configuration corrupt. Aborting.'
   exit 1
 fi
 
@@ -221,10 +248,10 @@ fi
 # allow arguments to be passed to squid
 if [[ -n ${1} ]]; then
   if [[ ${1:0:1} == '-' ]]; then
-    EXTRA_ARGS="$@"
+    EXTRA_ARGS=( "$@" )
     set --
   elif [[ ${1} == squid || ${1} == $(which squid) ]]; then
-    EXTRA_ARGS="${@:2}"
+    EXTRA_ARGS=( "${@:2}" )
     set --
   fi
 fi
@@ -232,20 +259,19 @@ fi
 # default behaviour is to launch squid
 if [[ -z ${1} ]]; then
   if [[ ! -d ${SQUID_CACHE_DIR}/00 ]]; then
-    echo "Initializing squid cache..."
+    report_info 'Initializing squid cache...'
     $(which squid) -N -f /etc/squid/squid.conf -z
   fi
-  echo "Starting squid..."
-  "$(which squid)" -f /etc/squid/squid.conf -NYC ${EXTRA_ARGS} &
+  report_info 'Starting squid...'
+  if [ "$DEBUG" == 'true' ]; then
+    "$(which squid)" -X -f /etc/squid/squid.conf -NYC "${EXTRA_ARGS[@]}" &
+  else
+    "$(which squid)" -f /etc/squid/squid.conf -NYC "${EXTRA_ARGS[@]}" &
+  fi
 else
-  $@ &
+  "$@"
+  exit $!
 fi
 
-# note, squid command is to run in the forgroung, so hopefully no orphined defunct / 'zombie' processes should result. We don't wrap SIGHUP given squid should not be reloaded.
-
-# trap SIGINT or TERM signals and TERM children
-trap "echo 'Terminating child processes'; [[ -z "$(jobs -p)" ]] || kill $(jobs -p)" 2 3 15
-
-# wait on all children to exit gracefully
+trap 'sigterm_handler' SIGINT SIGQUIT SIGTERM
 wait
-echo "Exited gracefully"

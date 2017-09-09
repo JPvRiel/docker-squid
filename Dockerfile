@@ -1,5 +1,8 @@
-FROM ubuntu:xenial
-MAINTAINER jp.vanriel@gmail.com
+FROM ubuntu:16.04
+LABEL application="squid" \
+  maintainer='Jean-Pierre van Riel <jp.vanriel@gmail.com>' \
+  version='3.5.12' \
+  release-date='2017-09-09'
 
 ENV SQUID_CACHE_DIR=/var/spool/squid \
     SQUID_LOG_DIR=/var/log/squid \
@@ -16,8 +19,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # use `docker build --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) .` to
-# force the cache to break for config changes below.
-ARG CACHE_DATE=2016-10-09
+# force the cache to break here for config changes below.
+ARG CACHE_DATE=2017-09-09
 
 RUN mv /etc/squid/squid.conf /etc/squid/squid.conf.dist
 RUN touch /etc/squid/direct_regex.txt
@@ -27,5 +30,5 @@ COPY entrypoint.sh /usr/local/sbin/entrypoint.sh
 RUN chmod 755 /usr/local/sbin/entrypoint.sh
 
 EXPOSE 3128/tcp
-VOLUME ["${SQUID_CACHE_DIR}"]
+VOLUME ["${SQUID_CACHE_DIR}", "$(SQUID_LOG_DIR)"]
 ENTRYPOINT ["/usr/local/sbin/entrypoint.sh"]

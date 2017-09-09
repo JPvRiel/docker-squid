@@ -2,38 +2,50 @@
 
 _NB!_ Not intended for production use! Dev/testing only... ;-)
 
-# Run
+Provides a squid caching proxy that can be chained to an upstream proxy.
 
-This assumes running docker safely in Linux environment with `sudo` (which protects against root privilege escalation through docker). Other platforms or running directly avoids needing `sudo`.
+# Run
 
 _TL;DR!?_
 
-Best to make a directory on the host for the proxy cache
+A pre-created named volume is recommend, and then run passing along your current proxy env vars e.g.:
 
 ```
-mkdir -p ~/.squid/cache
+docker volume create squid_cache
+sudo -E docker run -it --rm -p 127.0.0.1:3128:3128 -p 172.17.0.1:3128:3128 -v squid_cache:/var/spool/squid -e http_proxy -e no_proxy --name squid jpvriel/squid
 ```
 
-When in the office, with an upstream proxy that needs authentication, run:
+When in the office, with an upstream proxy that needs authentication, run with the `http_proxy_get_cred=true` flag t:
 
 ```bash
-sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy='http://proxy.test:8080' -e no_proxy='localhost,127.0.0.1,.proxy.test' -e http_proxy_get_cred=0 -name squid jpvriel/squid
+sudo docker run -it --rm -p 127.0.0.1:3128:3128 -p 172.17.0.1:3128:3128 -v squid_cache:/var/spool/squid -e http_proxy='http://proxy.test:8080' -e no_proxy='localhost,127.0.0.1,.proxy.test' -e http_proxy_get_cred=true --name squid jpvriel/squid
 ```
+
+Obviously replace 'proxy.test' with your actual proxy...
 
 When at home, without an upstream proxy, run
 
 ```bash
-sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -name squid jpvriel/squid
+sudo docker run -it --rm -p 127.0.0.1:3128:3128 -p 172.17.0.1:3128:3128 -v squid_cache:/var/spool/squid --name squid jpvriel/squid
 ```
+
+What it does:
+
+- `-p 127.0.0.1:3128:3128 -p 172.17.0.1:3128:3128` Expose the proxy port on localhost and the docker host's bridged network IP (e.g. you wouldn't want 0.0.0.0 in case you get abused as an open proxy... )
+- `-v ...` specify where to mount the data volume
+- `-it` allows for seeing the container spit out the squid access log events on the console - handy to check if the cache is functioning and seeing what's being downloaded
+- The containers `entrypoint.sh` will change ownership to proxy:proxy for the `cache` folder
 
 TODO (implied limitations):
 
-- show how to set other docker containers to use proxy (and support wider docker networking/compose options)
-- improve to leverage transparent proxy option (related to the above)?
-- detect parent/peer proxy authentication requirements and use Kerberos/NEGOTIATE authentication when required
-- test disabling cache_mem options with squid to make container more lightweight and rely on OS I/O cache instead
+- Show how to set other docker containers to use proxy (and support wider docker networking/compose options)
+- Improve to leverage transparent proxy option (related to the above)?
+- Detect parent/peer proxy authentication requirements and use Kerberos/NEGOTIATE authentication when required
+- Test disabling cache_mem options with squid to make container more lightweight and rely on OS I/O cache instead
+- Test suite to check various options and config choices behave
+- Consider parsing and handling a proxy PAC file (it's javascript and can get complex...)
 
-## Simple
+## Simple (and risky)
 
 Without authentication and mapping a volume
 
@@ -44,32 +56,10 @@ $ sudo docker run --name squid jpvriel/squid
 What is does (by default):
 
 - runs squid
-- creates a "data volume" so that the squid cache data can persist (only for the life-cycle of the container)
+- uses a volume so that the squid cache data can persist (only for the life-cycle of the specific container)
 
-  - E.g. if the same container is started again later, the previous cache should still be effective
+  - E.g. if the same container is started again later, the previous cache should still be effective via the volume
   - When running another container, that won't share the cache (unless you dug out and explicitly reused the volume mount point from a previous container run)
-
-## Map the cache storage volume to a host directory
-
-While more explicit, this will help the cache persist over time between multiple docker runs.
-
-```bash
-$ mkdir -p ~/.squid/cache
-$ chmod -R 0750 ~/.squid/
-$ sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid --name squid jpvriel/squid
-```
-
-What it does:
-
-- `-p 172.17.0.1:3128:3128` Expose the proxy port on the docker host's bridged network IP (e.g. you wouldn't want 0.0.0.0 in case you get abused as an open proxy... )
-- `-v ...` specify where to mount the data volume
-- `-it` allows for seeing the container spit out the squid access log events on the console - handy to check if the cache is functioning and seeing what's being downloaded
-
-Also:
-
-- The containers `entrypoint.sh` will change ownership to proxy:proxy for the `cache` folder
-
-_N.B!_ It's better to explicitly map and mount docker volumes with `-v`, otherwise a large number of dangling automatically provisioned volumes can result, wasting space, and breaking caching between multiple docker container runs.
 
 ## Using an upstream proxy
 
@@ -89,16 +79,18 @@ First a quick detour about proxy environment variables (and the limits thereof!)
 - Tools which read `no_proxy` are usually limited to globing FQDNS and often don't play nice with IP address exclusions.
 
   - `curl` is a very good example. `no_proxy='10.*' curl 10.0.0.1` will still try proxy your request.
-  - nonetheless, try avoid polluting the cache with local/fast content by using `no_proxy` if possible
+  - nonetheless, try avoid polluting the cache with local/fast content by using `no_proxy` if possible.
 
-- As can be appreciated, this is nowhere near as flexible as the JavaScript function for a proxy `.pac` file
+- As can be appreciated, this is nowhere near as flexible as the JavaScript function for a proxy `.pac` file.
 
 ### Upstream proxy without authentication
+
+This assumes the docker network running the container can access the proxy set by env vars (e.g. the default docker network can NAT out).
 
 Directly supply the proxy settings as environment variables in the docker command
 
 ```
-$ sudo docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy='http://proxy.test:8080' -e no_proxy='localhost,127.0.0.1,.proxy.test' -name squid jpvriel/squid
+$ sudo docker run -it -p 3128:3128 -v squid_cache:/var/spool/squid -e http_proxy='http://proxy.test:8080' -e no_proxy='localhost,127.0.0.1,.proxy.test' -name squid jpvriel/squid
 ```
 
 Or export and inherit the proxy environment variables from the host's shell
@@ -106,27 +98,26 @@ Or export and inherit the proxy environment variables from the host's shell
 ```bash
 $ export http_proxy='http://proxy.test:8080'
 $ export no_proxy='localhost,127.0.0.1,.proxy.test'
-$ sudo -E docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy -e no_proxy -name squid jpvriel/squid
+$ sudo -E docker run -it -p 3128:3128 -v squid_cache:/var/spool/squid -e http_proxy -e no_proxy -name squid jpvriel/squid
 ```
 
 Furthermore, note:
 
-- `-E` for `sudo` is needed to tell sudo to copy the proxy env vars so the next docker command part has access to them
-- `-e` for `docker` is needed to tell docker to copy the proxy env vars into the container
+- `-E` for `sudo` is needed to tell sudo to copy the proxy env vars so the next docker command part has access to them.
+- `-e` for `docker` is needed to tell docker to copy the proxy env vars into the container.
 
 ### Upstream proxy with authentication
 
 #### Get prompted for the user and password
 
-When the upstream proxy needs authentication, include an extra environment variable `http_proxy_get_cred=0` as a flag so that the entrypoint.sh script will prompt for the username and password. Assuming the usual proxy environment vars already exported by the host's shell, e.g.:
+When the upstream proxy needs authentication, include an extra environment variable `http_proxy_get_cred=true` as a flag so that the entrypoint.sh script will prompt for the username and password. Assuming the usual proxy environment vars already exported by the host's shell, e.g.:
 
 ```bash
-$ sudo -E docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy -e no_proxy -e http_proxy_get_cred=0 -name squid jpvriel/squid
+$ sudo -E docker run -it -p 3128:3128 -v squid_cache:/var/spool/squid -e http_proxy -e no_proxy -e http_proxy_get_cred=true -name squid jpvriel/squid
 ```
 
 Notes, including security considerations:
 
-- In the bash shell (and other's), `0` implies true (which unlike some other languages, i.e. C, where 0 is false and anything else is true)
 - HTTP basic auth is not a secure choice, especially if the `cache_peer` proxy is not accessed over TLS.
 - For basic HTTP proxy auth, ultimately, this ends up as `login=domain\user:pass` in squid config's `cache_peer` directive. Future work could try make this more secure:
 
@@ -155,7 +146,7 @@ As an alternative, the user and password can be passed via the legacy HTTP basic
 $   export http_proxy='http://domain%5Cuser:pass@proxy.test:8080'
 ```
 
-However, note:
+Note:
 
 - _N.B!_ there is an intentional extra space (or multiple spaces) before setting the environment variable!
 
@@ -174,7 +165,7 @@ However, note:
 Running squid docker proxy with `http_proxy` including the `user:pass@...` credentials
 
 ```bash
-$ sudo -E docker run -it -p 3128:3128 -v ~/.squid/cache:/var/spool/squid -e http_proxy -e no_proxy --name squid jpvriel/squid
+$ sudo -E docker run -it -p 3128:3128 -v squid_cache:/var/spool/squid -e http_proxy -e no_proxy --name squid jpvriel/squid
 ```
 
 ## Advanced transparent proxy via docker host IP
@@ -192,7 +183,7 @@ Other
 ```
 docker run -d --restart=always \
   --publish 3128:3128 \
-  --volume ~/.squid/cache:/var/spool/squid \
+  --volume squid_cache:/var/spool/squid \
   --name squid jpvriel/squid
 ```
 
@@ -208,8 +199,7 @@ $ curl whatismyip.akamai.com; echo
 
 Note
 
-- `407` = proxy authentication required implies your user name or password is wrong (likely), or squid is unable to handle the authentication the upstream proxy needs
-- Don't generate too many `407`s, it can cause account lockout
+- `407` = proxy authentication required implies your user name or password is wrong (likely), or squid is unable to handle the authentication the upstream proxy needs.
 
 # Startup script
 
@@ -222,12 +212,12 @@ Note
 Docker build command
 
 ```
-$ sudo docker build --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) -t jpvriel/squid:0.1.0 -t jpvriel/squid:latest .
+$ sudo docker build --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) -t jpvriel/squid:3.5.12 -t jpvriel/squid:latest .
 ```
 
 Note:
 
-- `-t` tags are set appropriately to reflect the version
+- `-t` tags are set appropriately to reflect the version of squid (which depends on the package in the repo)
 - `--build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S)`
 
   - Useful for breaking out of dockers caching when rebuilding the image and only changing the squid config files or entrypoint.sh script.
@@ -236,7 +226,7 @@ Note:
 Docker build command through a proxy
 
 ```
-sudo -E docker build --build-arg http_proxy --build-arg no_proxy --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) -t jpvriel/squid:0.1.0 -t jpvriel/squid:latest .
+sudo -E docker build --build-arg http_proxy --build-arg no_proxy --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) -t jpvriel/squid:3.5.12 -t jpvriel/squid:latest .
 ```
 
 Note:
@@ -249,17 +239,17 @@ Note:
 
 # Debug
 
+You can use `-e DEBUG=true` to get extra verbose output from both the entrypoint script and squid.
+
 ## Debug entrypoint.sh
 
 If the containers entrypoint is failing to work, i.e. exiting, then rerun as another debugging container and override the entrypoint.
 
 ```
 $ sudo docker run -it --entrypoint /bin/bash --name squid_debug squid
-root@3dd6f36d9357:/# /usr/local/sbin/entrypoint.sh
+root@3dd6f36d9357:/# DEBUG=true /usr/local/sbin/entrypoint.sh
 /usr/local/sbin/entrypoint.sh: line 5: 1: unbound variable
 ```
-
-The above shows a bug in the `/usr/local/sbin/entrypoint.sh` bash script.
 
 It's also possible to connect to a running container
 
@@ -308,9 +298,9 @@ $ sudo docker inspect -f "{{ .Mounts }}" squid_debug[{83b29460e185176994bc957077
 
 ## Check DNS resolution
 
-on some operating systems, such as Ubuntu 16.04 LTS, the container can fail to get workable local DNS servers and defaults to 8.8.8.8, which won't work well in an internal DNS or firewalled off environment
+On some operating systems, such as Ubuntu 16.04 LTS, the container can fail to get workable local DNS servers and defaults to 8.8.8.8, which won't work well in an internal DNS or firewalled off environment.
 
-The line below generates the --dns entries you need to give docker explicitly.
+If your're running Linux with Network Manager, the line below generates the --dns entries you need to give docker explicitly.
 
 ```
 nm_dns=$(for d in $(nmcli device show | grep -E "^IP4.DNS" | grep -oP '(\d{1,3}\.){3}\d{1,3}'); do echo -n " --dns $d"; done)
