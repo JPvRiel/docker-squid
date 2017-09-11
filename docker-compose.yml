@@ -1,0 +1,19 @@
+version: '2.1'
+
+services:
+  squid:
+    image: jpvriel/squid
+    build:
+      context: .
+    environment:
+      - http_proxy
+      - no_proxy
+    volumes:
+      - squid_cache:/var/spool/squid
+    network_mode: bridge
+    ports:
+      - 127.0.0.1:3128:3128
+      - 172.17.0.1:3128:3128
+
+volumes:
+  squid_cache:
