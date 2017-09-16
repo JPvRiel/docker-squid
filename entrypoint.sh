@@ -31,15 +31,16 @@ function sigterm_handler() {
 # Note, we don't wrap SIGHUP given squid should not be reloaded, but rather the container re-run.
 
 test_http_head(){
-  not_reachable=0
+  failed=0
   for u in "${@}"; do
-    echo -n "${u} = "
-    if ! curl -ILso /dev/null -m "$HTTP_TIMEOUT" -w '%{response_code}\n' "$u"; then
+    http_response_code="$(curl -ILso /dev/null -m "$HTTP_TIMEOUT" -w '%{response_code}\n' "$u")"
+    if (( $? != 0 )) || (( http_response_code < 200 )) || (( http_response_code >= 500 )); then
+      let $((failed++))
       report_error "${u} is not reachable."
-      let $((not_reachable++))
     fi
+    report_info "${u} = ${http_response_code}"
   done
-  return $not_reachable
+  return $failed
 }
 
 url_decode() {
@@ -242,7 +243,7 @@ fi
 if [[ ${SQUID_LOG_TAIL} -eq 0 ]]; then
   ( umask 0 && truncate -s0 "$SQUID_LOG_DIR"/{access,cache}.log )
   su - "$SQUID_USER" -s /bin/sh -c "tail --pid $$ -n 0 -F \"$SQUID_LOG_DIR/access.log\" &"
-  log_tail_pid=
+  log_tail_pid=$!
 fi
 
 # allow arguments to be passed to squid
