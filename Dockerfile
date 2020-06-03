@@ -1,8 +1,8 @@
-FROM ubuntu:16.04
+FROM ubuntu:20.04
 LABEL application="squid" \
   maintainer='Jean-Pierre van Riel <jp.vanriel@gmail.com>' \
-  version='3.5.12-1' \
-  release-date='2017-09-16'
+  version='4.10-1' \
+  release-date='2020-06-03'
 
 ENV SQUID_CACHE_DIR=/var/spool/squid \
     SQUID_LOG_DIR=/var/log/squid \
@@ -20,7 +20,7 @@ RUN apt-get update \
 
 # use `docker build --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) .` to
 # force the cache to break here for config changes below.
-ARG CACHE_DATE=2017-09-16
+ARG CACHE_DATE=2020-06-03
 
 RUN mv /etc/squid/squid.conf /etc/squid/squid.conf.dist
 RUN touch /etc/squid/direct_regex.txt
