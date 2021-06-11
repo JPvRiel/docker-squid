@@ -10,6 +10,7 @@ services:
       - no_proxy
     volumes:
       - squid_cache:/var/spool/squid
+      - squid_cache:/var/log/squid
     network_mode: bridge
     ports:
       - 127.0.0.1:3128:3128
@@ -17,3 +18,4 @@ services:
 
 volumes:
   squid_cache:
+  squid_log:

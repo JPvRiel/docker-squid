@@ -20,7 +20,7 @@ RUN apt-get update \
 
 # use `docker build --build-arg CACHE_DATE=$(date +%Y-%m-%dT%H:%M:%S) .` to
 # force the cache to break here for config changes below.
-ARG CACHE_DATE=2020-06-03
+ARG CACHE_DATE=2021-06-11
 
 RUN mv /etc/squid/squid.conf /etc/squid/squid.conf.dist
 RUN touch /etc/squid/direct_regex.txt
@@ -30,5 +30,5 @@ COPY entrypoint.sh /usr/local/sbin/entrypoint.sh
 RUN chmod 755 /usr/local/sbin/entrypoint.sh
 
 EXPOSE 3128/tcp
-VOLUME ["${SQUID_CACHE_DIR}", "$(SQUID_LOG_DIR)"]
+VOLUME ["$SQUID_CACHE_DIR", "$SQUID_LOG_DIR"]
 ENTRYPOINT ["/usr/local/sbin/entrypoint.sh"]
